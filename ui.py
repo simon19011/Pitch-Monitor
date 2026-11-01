@@ -4,7 +4,7 @@ from collections import deque
 from data import start_microphone_recording, stop_microphone_recording, get_current_pitch, get_midi, get_exact_midi
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea
 from PySide6.QtGui import QPainter, QColor, QPen
-from PySide6.QtCore import Qt, QObject, Signal, Slot, QThread, QPointF
+from PySide6.QtCore import Qt, QObject, Signal, Slot, QThread, QPointF, QTimer, QPropertyAnimation, QEasingCurve
 
 class PianoRoll(QWidget):
     NOTE_HEIGHT = 25
@@ -33,9 +33,32 @@ class PianoRoll(QWidget):
 
         self.pitch_history = deque()
 
+        self.scroll_area = None
+
         self.setMinimumHeight(
             (self.MAX_MIDI - self.MIN_MIDI + 1) * self.NOTE_HEIGHT
         )
+
+    def center_current_note(self):
+        if self.scroll_area is None or self.current_midi is None:
+            return
+
+        scrollbar = self.scroll_area.verticalScrollBar()
+
+        note_y = (self.MAX_MIDI - self.current_midi) * self.NOTE_HEIGHT
+
+        target_scroll = (note_y + (self.NOTE_HEIGHT / 2) - (self.scroll_area.viewport().height() / 2))
+        target_scroll = max(scrollbar.minimum(), min(target_scroll, scrollbar.maximum()))
+
+        if hasattr(self, "scroll_animation"):
+            self.scroll_animation.stop()
+
+        self.scroll_animation = QPropertyAnimation(scrollbar, b"value", self)
+        self.scroll_animation.setDuration(200)
+        self.scroll_animation.setStartValue(scrollbar.value())
+        self.scroll_animation.setEndValue(target_scroll)
+        self.scroll_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.scroll_animation.start()
 
     def set_pitch(self, frequency):
         now = time.monotonic()
@@ -53,6 +76,9 @@ class PianoRoll(QWidget):
             self.pitch_history.popleft()
 
         self.update()
+
+        if self.current_midi is not None:
+            QTimer.singleShot(0, self.center_current_note)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -198,6 +224,8 @@ scroll_area.setWidget(piano_roll)
 scroll_area.setWidgetResizable(True)
 scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+piano_roll.scroll_area = scroll_area
 
 layout.addWidget(scroll_area, 6)
 layout.addWidget(Controls(), 1)
